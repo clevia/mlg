@@ -1,0 +1,652 @@
+---
+title: "mlg agua potavel"
+author: "Clevia"
+date: "2022-12-04"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 5
+    code_folding: hide
+    theme: cosmo
+    highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introdução
+
+O acesso para economizar água potável é importante para a saúde pública. Segundo a Organização Mundial da Saúde, um melhor abastecimento de água e saneamento e uma melhor gestão dos recursos hídricos podem impulsionar o crescimento econômico e contribuir para a redução da pobreza.
+
+Além disso, a água potável é muito importante para manter nossas funções corporais. Um corpo humano pode sobreviver até 4 semanas sem comida, mas apenas 3 dias sem água.
+
+Portanto, é importante estudar quais variáveis influenciam na água potável.
+
+O conjunto de dados neste estudo consiste em 10 variáveis, com uma variável dependente (1 = potável, 0 = não potável) e 9 variáveis independentes. As variáveis independentes são os parâmetros da água. O objetivo deste estudo é prever a água potável com base nesses parâmetros da água.
+
+# Sobre o conjunto de dados
+
+O conjunto de dados neste estudo consiste em 10 variáveis, com uma variável dependente (1 = potável, 0 = não potável) e 9 variáveis independentes. As variáveis independentes são os parâmetros da água.
+
+Variáveis
+
+**Valor do pH:** O pH é um parâmetro importante na avaliação do equilíbrio ácido-base da água.
+
+**Dureza:** A dureza é causada principalmente por sais de cálcio e magnésio.
+
+**Sólidos (Sólidos dissolvidos totais - TDS)**: A água tem a capacidade de dissolver uma ampla gama de minerais ou sais inorgânicos e alguns orgânicos, como potássio, cálcio, sódio, bicarbonatos, cloretos, magnésio, sulfatos etc.
+
+**Cloraminas**: Cloro e cloramina são os principais desinfetantes usados em sistemas públicos de água.
+
+**Sulfato**: Os sulfatos são substâncias naturais encontradas em minerais, solo e rochas.
+
+**Condutividade:** A água pura não é um bom condutor de corrente elétrica, mas sim um bom isolante. O aumento na concentração de íons aumenta a condutividade elétrica da água.
+
+**Organic_carbon:** O carbono orgânico total (TOC) nas águas de nascente vem da matéria orgânica natural em decomposição (NOM), bem como de fontes sintéticas.
+
+**Trihalometanos**: THMs são produtos químicos que podem ser encontrados em água tratada com cloro.
+
+**Turbidez**: A turbidez da água depende da quantidade de matéria sólida presente no estado suspenso.
+
+**Potabilidade:** Indica se a água é segura para consumo humano onde 1 significa Potável e 0 significa Não potável.
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+require(dplyr)
+require(tidyverse)
+require(ggplot2)
+require(janitor)
+require(skimr)
+require(corrplot)
+library(Hmisc)
+require(GGally)
+require(randomForest)
+require(caret)
+require(scales)
+require(ggpubr)
+library(MVN)
+```
+
+```{r message=FALSE, warning=FALSE}
+water_potability <- read_csv("/Users/Clevia/Documents/MLG/water_potability.csv")
+knitr::kable( head(water_potability), "simple")
+```
+
+```{r message=FALSE, warning=FALSE}
+water_potability <- water_potability %>% 
+  mutate(Potability = as.factor(Potability)) %>%
+  clean_names() %>% glimpse()
+```
+## Verificação de dados faltantes 
+```{r}
+#dados faltantes 
+
+water_potability %>%
+  summarise_all(~ sum(is.na(.)))
+```
+Podemos ver que há 3 variáveis com dados faltantes, PH, Sulfate e Trihalomethanes
+
+# Gráfico com os valores faltantes
+
+```{r}
+#grafico com valores faltantes 
+
+water_potability %>%  skim() %>%
+  filter(n_missing != 0) %>%
+  as_tibble() %>%
+  select(skim_variable, n_missing, complete_rate) %>%
+  mutate(missing_rate = round(abs(complete_rate - 1) * 100, 1)) %>%
+  ggplot(aes(
+    x = fct_reorder(skim_variable, n_missing),
+    y = missing_rate,
+    fill = skim_variable,
+    label = paste0(missing_rate, "%")
+  )) +
+  geom_col(width = .6) +
+  geom_text(
+    size = 4.5,
+    hjust = 1.2,
+    vjust = .25,
+    col = "white"
+  ) +
+  coord_flip() + theme(aspect.ratio = .4) +
+  theme(
+    legend.position = "none"
+  ) +
+  scale_y_continuous(label = label_percent(scale = 1)) +
+  scale_fill_manual(values = c("#25C5DA",
+                               "#25A69A",
+                               "#66BA6A")) +
+  labs(
+    title = "Dados Faltantes",
+    subtitle = "Distribuição dos dados faltantes",
+    caption = "Data source: Kaggle.com, Water Quality",
+    x = NULL,
+    y = NULL
+  )
+
+```
+Neste gráfico observamos a proporção de dados faltantes no banco de dados 
+
+
+# Valores faltantes em relação a variável resposta
+
+```{r}
+#valores faltantes em relação a variável resposta
+
+water_potability %>% group_by(potability) %>%  skim() %>%
+  filter(n_missing != 0) %>%
+  as_tibble() %>%
+  select(skim_variable, n_missing, complete_rate, potability) %>%
+  mutate(missing_rate = round(abs(complete_rate - 1) * 100, 1)) %>%
+  ggplot(aes(
+    x = fct_reorder(skim_variable, n_missing),
+    y = missing_rate,
+    fill = skim_variable,
+    label = paste0(missing_rate, "%")
+  )) +
+  geom_col(width = .6) +
+  geom_text(
+    size = 4,
+    hjust = 1.2,
+    vjust = 0.25,
+    col = "white"
+  ) +
+  coord_flip() +
+  facet_wrap(vars(potability)) +
+  theme(aspect.ratio = .7) +
+  theme(
+    legend.position = "none",
+    strip.background = element_rect(fill="#94246D"),
+    strip.text = element_text(color = "white", face = "bold", size = 12)
+  ) +
+  scale_y_continuous(label = label_percent(scale = 1)) +
+  scale_fill_manual(values = c("#D41C64",
+                               "#4B6FB5",
+                               "#6C3996")) +
+  labs(
+    title = "Dados faltantes VS Variável resposta",
+    subtitle = "Plot, Missing Data distribution VS Target Variable",
+    caption = "Data source: Kaggle.com, Water Quality",
+    x = NULL,
+    y = NULL
+  )
+
+```
+
+Aqui observamos os dados faltantes em relação a variável resposta. 
+
+Neste caso optou-se por substituir esses valores pela média, pois com a remoção muita informação seria perdida.
+
+
+```{r}
+#substituir valores faltantes 
+
+water_potability <- water_potability %>% 
+  group_by(potability) %>%
+  mutate(across(where(is.numeric), ~if_else(is.na(.), mean(., na.rm = T), 
+                                            as.numeric(.)))) %>% ungroup()
+```
+
+```{r}
+#variavel resposta
+
+water_potability %>%
+  select(potability) %>%
+  count(potability) %>% mutate(percent = paste0(round(n / sum(n) * 100), "%"), 2) %>%
+  ggplot(aes(
+    x = potability,
+    y = n,
+    label = percent,
+    fill = potability
+  )) +
+  geom_col() +
+  geom_text(vjust = -0.2, color = "#7C4EA8") +
+  scale_fill_manual(values = c("#EF1A25", "#0099D5")) +
+  labs(
+    title = "Potabilidade da água",
+    subtitle = "Gráfico de barras com a distribuição da variável potabilidade",
+    caption = "Data source: Kaggle.com, Water Quality",
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  )
+
+```
+
+Gráfico com a proporção da variável resposta no banco de dados 
+
+
+
+
+```{r}
+p1 <- ggplot(water_potability, aes(ph, color = as.factor(potability)))+
+  geom_histogram(bins = 30, fill = "white") +
+  labs(x = "pH", y = "Count", col = "Potability") +
+  theme_bw() + 
+  theme(legend.position = "bottom")+
+  labs(title = "pH")
+
+p2 <- ggplot(water_potability, aes(hardness, color = as.factor(potability)))+
+  geom_histogram(bins = 30, fill = "white") +
+  labs(x = "Hardness", y = "Count", col = "Potability") +
+  theme_bw() + 
+  theme(legend.position = "bottom")+ 
+  labs(title = "Hardness")
+
+p3 <- ggplot(water_potability, aes(solids, color = as.factor(potability)))+
+  geom_histogram(bins = 30, fill = "white") +
+  labs(x = "Solids", y = "Count", col = "Potability") +
+  theme_bw() + 
+  theme(legend.position = "bottom") + 
+  labs(title = "Solids")
+
+p4 <- ggplot(water_potability, aes(chloramines, color = as.factor(potability)))+
+  geom_histogram(bins = 30, fill = "white") +
+  labs(x = "Chloramines", y = "Count", col = "Potability") +
+  theme_bw() + 
+  theme(legend.position = "bottom") + 
+  labs(title = "Chloramines")
+
+p5 <- ggplot(water_potability, aes(sulfate, color = as.factor(potability)))+
+  geom_histogram(bins = 30, fill = "white") +
+  labs(x = "Sulfate", y = "Count", col = "Potability") +
+  theme_bw() + 
+  theme(legend.position = "bottom") + 
+  labs(title = "Sulfate")
+
+p6 <- ggplot(water_potability, aes(conductivity, color = as.factor(potability)))+
+  geom_histogram(bins = 30, fill = "white") +
+  labs(x = "Conductivity", y = "Count", col = "Potability") +
+  theme_bw() + 
+  theme(legend.position = "bottom") + 
+  labs(title = "Conductivity")
+
+p7 <- ggplot(water_potability, aes(organic_carbon, color = as.factor(potability)))+
+  geom_histogram(bins = 30, fill = "white") +
+  labs(x = "Organic Carbon", y = "Count", col = "Potability") +
+  theme_bw() + 
+  theme(legend.position = "bottom") + 
+  labs(title = "Organic Carbon")
+
+p8 <- ggplot(water_potability, aes(trihalomethanes, color = as.factor(potability)))+
+  geom_histogram(bins = 30, fill = "white") +
+  labs(x = "Trihalomethanes", y = "Count", col = "Potability") +
+  theme_bw() + 
+  theme(legend.position = "bottom") + 
+  labs(title = "Trihalomethanes")
+
+p9 <- ggplot(water_potability, aes(turbidity, color = as.factor(potability)))+
+  geom_histogram(bins = 30, fill = "white") +
+  labs(x = "Turbidity", y = "Count", col = "Potability") +
+  theme_bw() + 
+  theme(legend.position = "bottom") + 
+  labs(title = "Turbidity")
+```
+
+# Histogramas com a variável resposta em relação as demais variaveis
+
+```{r message=FALSE, warning=FALSE}
+figure1 <- ggarrange(p1, p2, p3, p4, p5, nrow = 2, ncol = 3, labels = "AUTO")
+figure2 <- ggarrange(p6, p7, p8, p9, nrow = 2, ncol = 2, labels = "AUTO")
+figure1
+figure2
+```
+
+
+# Box plot
+
+```{r message=FALSE, warning=FALSE}
+water_potability %>%
+  pivot_longer(cols = -potability, names_to = "feature") %>%
+  ggplot(aes(x = feature, y = value)) +
+  geom_jitter(aes(y = value, col = potability), alpha = 0.1) +
+  geom_boxplot(aes(fill = potability)) +
+  facet_wrap(vars(feature), ncol = 3, scales = "free") +
+  scale_color_manual(values = c("#E4652E", "#0E8A41")) +
+  scale_fill_manual(values = c("#E4652E", "#0E8A41")) +
+  theme(
+    legend.position = "right",
+    strip.background = element_rect(fill = "#0B2D5B"),
+    strip.text = element_text(color = "white", face = "bold", size = 8)
+  ) +
+  labs(
+    title = "Detect Outliers With Boxplot",
+    subtitle = "Plot, Box and Jitter Plot",
+    caption = "Data source: Kaggle.com, Water Quality",
+    x = NULL,
+    y = NULL,
+    fill = NULL,
+    color = NULL
+  )
+
+```
+
+# Teste de normalidade 
+
+
+```{r message=FALSE, warning=FALSE}
+
+aa<- mvn(data = water_potability[,-10],  univariatePlot =
+      "qqplot")
+
+teste <- mvn(data = water_potability[,-10], univariateTest =  
+               "SW")
+teste$'univariateNormality'
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+#teste de independencia
+
+require(stats)
+
+wilcox.test(table(water_potability$potability,water_potability$ph))
+wilcox.test(table(water_potability$potability,water_potability$hardness))
+wilcox.test(table(water_potability$potability,water_potability$solids))
+wilcox.test(table(water_potability$potability,water_potability$chloramines))
+wilcox.test(table(water_potability$potability,water_potability$sulfate))
+wilcox.test(table(water_potability$potability,water_potability$conductivity))
+wilcox.test(table(water_potability$potability,water_potability$organic_carbon))
+wilcox.test(table(water_potability$potability,water_potability$trihalomethanes))
+wilcox.test(table(water_potability$potability,water_potability$turbidity))
+```
+
+
+
+# Correlação
+
+
+```{r}
+corrplot( cor (water_potability[, -10]), method = "color", #col = col(200),  
+         type = "upper", order = "hclust", 
+         addCoef.col = "black", 
+         tl.col = T, tl.srt = 45, 
+         number.cex = 0.7, tl.cex = 0.7,
+         #p.mat = m_corr$P, sig.level = 0.05, insig = "n",
+         diag = FALSE, number.digits = 3
+)
+
+```
+
+```{r message=FALSE, warning=FALSE}
+ggpairs(
+  water_potability,
+  aes(color = potability),
+  columns = 1:9,
+  lower = list(continuous = wrap(
+    "smooth",
+    alpha = 0.2,
+    size = 0.5,
+    color = "#DE942E"
+  )),
+  diag = list(continuous = "barDiag"),
+  upper = list(continuous = wrap("cor", size = 4))
+) +
+  scale_color_manual(values = c("#1F5736", "#E94046")) +
+  scale_fill_manual(values = c("#1F5736", "#E94046")) +
+  theme(
+    axis.text = element_text(size = 8),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_rect(fill = "white"),
+    strip.background.x = element_rect(colour = "black"),
+    strip.background.y = element_rect(colour = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 8)
+  ) +
+  labs(
+    title = "Pair plot by Potability Var",
+    subtitle = "Pair Plot, scatter plot, Histogram and Correlation coefficient",
+    caption = "Data source: Kaggle.com, Water Quality",
+    x = NULL,
+    y = NULL
+  )
+
+```
+
+Podemos ver que não há indícios de Multicolinearidade
+
+# Modelos
+
+Foram testados os modelos de Regressão Logistica, Random Forest e KNN 
+
+```{r}
+# 80% training and 20% test dataset
+set.seed(1) 
+trn_index <- createDataPartition(y = water_potability$potability, p = 0.80, list = FALSE)
+trn_water <- water_potability[trn_index, ]
+tst_water <- water_potability[-trn_index, ]
+
+# K-nearest neighbors
+set.seed(1) 
+potability_knn <- train(potability ~ ., method = "knn", data = trn_water,
+                        trControl = trainControl(method = 'cv', number = 5, returnResamp = "all"))
+
+# Random forest
+set.seed(1)
+potability_rf <- randomForest(potability ~ .,
+                              data=trn_water, ntree= 1000
+)
+
+# Logistic regression
+set.seed(1)
+potability_lr <- train(potability ~ ., method = "glm", data = trn_water, 
+                       family = binomial(link = "logit"),
+                       trControl = trainControl(method = 'cv', number = 5))
+
+```
+
+```{r}
+# Prediction on test-dataset
+predicted_outcomes_rf <- predict(potability_rf, tst_water)
+predicted_outcomes_knn <- predict(potability_knn, tst_water)
+predicted_outcomes_lr <- predict(potability_lr, tst_water)
+
+# Create Confusion Matrices
+rf_confm <- confusionMatrix(predicted_outcomes_rf, tst_water$potability, positive='1')
+knn_confm <- confusionMatrix(predicted_outcomes_knn, tst_water$potability, positive='1')
+logistic_confm <- confusionMatrix(predicted_outcomes_lr, tst_water$potability, positive='1')
+
+
+# plot of confusion matrices
+plot_rf <- as.data.frame(rf_confm$table)
+plot_rf$Prediction <- factor(plot_rf$Prediction, levels=rev(levels(plot_rf$Prediction)))
+
+plot_knn <- as.data.frame(knn_confm$table)
+plot_knn$Prediction <- factor(plot_knn$Prediction, levels=rev(levels(plot_knn$Prediction)))
+
+plot_logistic <- as.data.frame(logistic_confm$table)
+plot_logistic$Prediction <- factor(plot_logistic$Prediction, 
+                                   levels=rev(levels(plot_logistic$Prediction)))
+
+```
+
+```{r}
+plot_conf_rf <- ggplot(plot_rf, aes(Prediction,Reference, fill= Freq)) +
+  geom_tile() + geom_text(aes(label=Freq)) + theme(legend.position = "None") +
+  ggtitle("Random Forest. Accuracy: 79,2%, Sensitivity: 59,22%, Specificity: 91,98%")
+
+plot_conf_knn <- ggplot(plot_knn, aes(Prediction,Reference, fill= Freq)) +
+  geom_tile() + geom_text(aes(label=Freq)) + theme(legend.position = "None") +
+  ggtitle("K-Nearest Neighbor. Accuracy: 58,26%, Sensitivity: 22,75%, Specificity: 80,95%")
+
+plot_conf_logistic <- ggplot(plot_logistic, aes(Prediction,Reference, fill= Freq)) +
+  geom_tile() + geom_text(aes(label=Freq)) + theme(legend.position = "None") +
+  ggtitle("Logistic Regression. Accuracy: 61%, Sensitivity: 0%, Specificity: 100%")
+
+
+```
+
+```{r}
+mod2 <- glm(formula = trn_water$potability  ~ .,family = binomial(link = "logit"),
+                      data = trn_water)
+
+mod3 <- glm(formula = trn_water$potability ~ hardness + solids + sulfate + 
+              organic_carbon, family = binomial(link = "logit"), data = trn_water)
+```
+
+
+```{r}
+summary(mod2)
+step(mod2, direction = "both")
+```
+
+
+
+```{r}
+summary(mod3)
+```
+
+Utilizando a seleção de modelos Stepwise o modelo que melhor explica os dados foi o modelo 3 
+entretanto ao fazer a predição o modelo prevê apenas valores 0. 
+Dessa forma foram testados outros modelos que pudessem retornar resultados significativos sento eles Random Forest e KNN
+
+
+```{r}
+plot_conf_rf
+plot_conf_knn
+plot_conf_logistic
+
+```
+
+
+
+# Modelo Random Forest 
+
+
+```{r}
+set.seed(31967)
+
+TrainIndex <-
+  createDataPartition(water_potability$potability, p = 0.8, list = FALSE)
+
+TrainingSet <- water_potability[TrainIndex, ]
+TestSet <- water_potability[-TrainIndex, ]
+```
+
+```{r}
+xdf <- TrainingSet %>% select(-potability)
+ydf <- TrainingSet %>% select(potability)
+
+set.seed(31967)
+
+```
+
+
+# Quantidade de variáveis (colunas) sorteadas por árvore.
+
+```{r}
+#Quantidade de variáveis (colunas) sorteadas por árvore.
+
+BestMtry <-
+  tuneRF(
+    xdf,
+    ydf$potability,
+    stepFactor = 1.5,
+    improve = 1e-6,
+    ntree = 1000, 
+    plot = F
+  )
+
+```
+
+```{r}
+BestMtry %>% as_tibble() %>% 
+  ggplot(aes(x = mtry, y = OOBError)) +
+  geom_line(col = "steelblue", size = 1.5)+
+  geom_point(col = "orange", size = 3)+
+  labs(
+    title = "Best Mtry",
+    caption = "Data source: Kaggle.com, Water Quality",
+    x = "Mtry",
+    y = "OOB Error"
+  )
+
+```
+
+```{r}
+set.seed(31967)
+control <- trainControl(method = "repeatedcv",
+                        number = 10,
+                        repeats = 7)
+
+set.seed(31967)
+RfFinal <- train(
+  potability ~ .,
+  data = TrainingSet,
+  method = "rf",
+  metric = "Accuracy",
+  tuneGrid = expand.grid(.mtry = 4),
+  trControl = control,
+  ntree = 1000
+)
+
+
+plot(RfFinal$finalModel)
+```
+
+# Variaveis importantes
+
+```{r}
+#variaveis inportantes
+
+VarsImp <- varImp(RfFinal, scale = FALSE)
+
+
+VarsImp$importance %>% 
+  rownames_to_column(var = "Variable") %>% 
+  as_tibble() %>% 
+  ggplot(aes(x = fct_reorder(Variable,Overall), y = Overall)) +
+  geom_col(fill = "#1F5736", size = 1) +
+  coord_flip()+
+  labs(
+    title = "Variables importance",
+    subtitle = "Column Plot, Variables importance, RfFinal mpdel",
+    caption = "Data source: Kaggle.com, Water Quality",
+    x = NULL,
+    y = NULL
+  )
+
+#######################################################################
+```
+As 5 variáveis mais importantes no modelo são, Sulfate, PH,Hardness, Solids e Chloramines
+
+# Predição
+
+```{r}
+#predição
+
+set.seed(31967)
+
+PredRf <- predict(RfFinal,TestSet, type = "raw")
+
+
+confusionMatrix(data = PredRf, reference = TestSet$potability, positive = "1")
+
+#######################################################3
+
+```
+
+# Conclusão 
+
+O modelo de regressão logística falhou em encontrar um padrão nos dados. Ele prevê que nem tudo é potável. Sendo assim ele não é indicado para esse conjunto de dados. 
+
+O modelo de melhor desempenho é o random forest: tem uma precisão de teste de 79,2%.
+
+Uma alta especificidade significa muitos verdadeiros negativos e poucos falsos positivos. Random Forest supera os demais modelos com especificidade de 91,98 %. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
